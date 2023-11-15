@@ -18,7 +18,7 @@ from solver.qp_primal_direct_batched_sparse_sys import QPFunction as QPFunctionS
 
 class ODEINDLayer(nn.Module):
     """ class for ODE with dimensions modeled independently"""
-    def __init__(self, bs, order, n_ind_dim, n_iv, n_step, n_iv_steps, solver_dbl=True, device=None):
+    def __init__(self, bs, order, n_ind_dim, n_iv, n_step, n_iv_steps, solver_dbl=True, gamma=0.5, alpha=0.1, device=None):
         super().__init__()
         # placeholder step size
         self.step_size = 0.1
@@ -48,7 +48,7 @@ class ODEINDLayer(nn.Module):
                          n_iv=self.n_iv, n_iv_steps=self.n_iv_steps, dtype=dtype, device=self.device)
 
 
-        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=0.5, alpha=0.1, double_ret=False)
+        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=gamma, alpha=alpha, double_ret=False)
 
     def forward(self, coeffs, rhs, iv_rhs, steps):
         coeffs = coeffs.reshape(self.bs*self.n_ind_dim, self.n_step,self.n_dim, self.order + 1)
@@ -89,7 +89,7 @@ class ODEINDLayer(nn.Module):
         return u0, u1, u2, eps, steps
 
 class ODESYSLayer(nn.Module):
-    def __init__(self, bs, order, n_ind_dim, n_dim, n_equations, n_iv, n_iv_steps, n_step, solver_dbl=True, device=None):
+    def __init__(self, bs, order, n_ind_dim, n_dim, n_equations, n_iv, n_iv_steps, n_step, solver_dbl=True, gamma=0.5, alpha=0.1, device=None):
         super().__init__()
 
         # placeholder step size
@@ -119,7 +119,7 @@ class ODESYSLayer(nn.Module):
                          n_iv=self.n_iv, n_iv_steps=self.n_iv_steps, dtype=dtype, device=self.device)
 
 
-        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=0.5, alpha=0.1)
+        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=gamma, alpha=alpha)
 
     def forward(self, coeffs, rhs, iv_rhs, steps):
         coeffs = coeffs.reshape(self.bs*self.n_ind_dim, self.n_equations, self.n_step,self.n_dim, self.order + 1)
