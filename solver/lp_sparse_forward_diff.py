@@ -56,7 +56,7 @@ class ODESYSLP(nn.Module):
         self.bs = bs
         self.dtype = dtype
         self.device = device
-        print('lp device', self.device)
+        #print('lp device', self.device)
 
         # total number of qp variables
         #self.num_vars = self.n_step*self.n_order+1
@@ -327,12 +327,6 @@ class ODESYSLP(nn.Module):
 
         derivative_rhs = derivative_rhs.unsqueeze(0).repeat(self.bs,1)
 
-        #self.register_buffer("derivative_rhs", derivative_rhs)
-        #self.register_buffer("eq_A", eq_A)
-        #self.register_buffer("mask_A", mask_A)
-        #self.register_buffer("initial_A", initial_A)
-        #self.register_buffer("derivative_A", derivative_A)
-
         self.derivative_rhs = derivative_rhs
         self.eq_A = eq_A
         #self.register_buffer("mask_A", mask_A)
@@ -536,17 +530,8 @@ class ODESYSLP(nn.Module):
 
         #ipdb.set_trace()
 
-        #eq_values = eq_values.reshape(-1)
-        #eq_indices = self.eq_A.indices()
-        #eq_indices = self.eq_A._indices()
-        #constraint_A = torch.sparse_coo_tensor(eq_indices,eq_values, dtype=self.dtype, device=eq_values.device)
-        #print('CA ', constraint_A.shape, flush=True)
-
 
         if derivative_A is None:
-            #derivative_values = self.build_step_values(steps)
-            #derivative_indices = self.derivative_A._indices()
-            #G = torch.sparse_coo_tensor(derivative_indices, derivative_values, dtype=self.dtype, device=eq_values.device)
             G = self.derivative_A
         else:
             G = derivative_A
