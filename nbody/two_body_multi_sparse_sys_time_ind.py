@@ -247,9 +247,7 @@ class EPHModel(nn.Module):
         rhs = self.rhs_t(pairwise_dist)
         
         #Time varying ODE coefficients
-        #coeffs = self.coeffs_mlp(pairwise_dist)
         coeffs_in = self.coeff_param.repeat(self.bs,1,1)
-        #coeffs = self.coeffs_mlp(pairwise_dist)
         coeffs = self.coeffs_mlp(coeffs_in)
 
         #expand coeffs over time
@@ -292,7 +290,7 @@ def build_model(batch_size=30, solver_dbl=True, learning_rate=0.0001):
 
 
 trainer = pl.Trainer(
-    max_epochs=50,
+    max_epochs=100,
     accelerator="gpu" if torch.cuda.is_available() else "cpu",
     #accelerator="cpu",
     devices=1,
@@ -318,7 +316,7 @@ def load(batch_size=30, solver_dbl=True, learning_rate=0.0001):
 if __name__ == "__main__":
     batch_size=30
     solver_dbl=True
-    learning_rate=0.00005
+    learning_rate=0.0001
 
     method, datamodule = build_model(batch_size, solver_dbl, learning_rate)
     train(method, datamodule)
