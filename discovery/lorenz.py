@@ -36,7 +36,7 @@ from source import write_source_files, create_log_dir
 from ode import ODEForwardINDLayer#, ODESYSLayer
 import discovery.basis as B
 import ipdb
-import extras.logger
+import extras.logger as logger
 
 #gradcheck = torch.sparse.as_sparse_gradcheck(torch.autograd.gradcheck)
 
@@ -52,6 +52,7 @@ cuda=True
 T = 80000
 n_step_per_batch = 50
 batch_size= 20
+threshold = 0.5
 
 class LorenzDataset(Dataset):
     def __init__(self, n_step_per_batch=100, n_step=1000):
@@ -104,14 +105,10 @@ class LorenzDataset(Dataset):
 #N,T
 
 
-#target_u = PlanarDataset(n_step=T).generate()
 ds = LorenzDataset(n_step=T,n_step_per_batch=n_step_per_batch)#.generate()
 train_loader =DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True) 
 
 
-#target_u = LorenzDataset(n_step=T,n_step_per_batch=n_step_per_batch).generate()
-
-#target_u = torch.tensor(target_u, dtype=dtype).permute(1,0)
 target_u = torch.ones(10, dtype=dtype)
 #target_u = target_u.permute(1,0)
 if cuda:
@@ -135,62 +132,30 @@ class Model(nn.Module):
         self.n_step_per_batch = n_step_per_batch
 
 
-        #time, num_basis
-        #self.basis = torch.tensor(basis).type_as(target_u)
-        #self.n_basis = n_basis
         self.n_basis = ds.n_basis
 
         self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim))).type_as(target_u)
-        #self.init_xi = torch.tensor(np.ones((self.n_basis, self.n_ind_dim))).type_as(target_u)
-        #init_iv = torch.tensor([3.,0.5]).type_as(target_u)
 
 
         self.mask = torch.ones_like(self.init_xi).type_as(target_u)
 
         self.step_size = 0.001
-        #steps = 0.05*torch.ones(self.bs, self.n_ind_dim, self.n_step-1).type_as(target_u)
-        #steps = torch.logit(0.01*torch.ones(1, self.n_ind_dim, 1)).type_as(target_u)
-        #steps = (0.1*torch.ones(1, self.n_ind_dim, 1)).type_as(target_u)
-        #steps = 0.05*torch.ones(self.bs, self.n_step-1, self.n_dim).type_as(target_u)
-        #steps = 0.1*torch.ones(1, 1, self.n_dim).type_as(target_u)
-        #steps = 0.05*torch.ones(1, 1, 1).type_as(target_u)
         self.xi = nn.Parameter(self.init_xi.clone())
-        #self.steps = nn.Parameter(steps)
-        #self.init_iv = nn.Parameter(init_iv)
-        #self.reset_params()
 
-        #init_coeffs = torch.ones(self.bs, self.n_ind_dim, self.n_step,1).type_as(target_u)
-        #init_coeffs = torch.ones(self.bs, self.n_ind_dim, self.n_step,2).type_as(target_u)
-        #init_coeffs = torch.ones(1, self.n_ind_dim, 1,2).type_as(target_u)
         init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2).type_as(target_u)
         self.init_coeffs = nn.Parameter(init_coeffs)
         
         self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
-        #self.l0_train = ODESYSLayer(bs=bs, order=self.order, n_dim=self.n_dim, n_step=self.n_step, n_iv=self.n_iv, **kwargs)
-        #self.l0_train = ODESYSLayer(bs=bs, order=self.order, n_dim=self.n_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
 
         self.z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(target_u)
         self.o = torch.ones(1, self.n_ind_dim, 1,1).type_as(target_u)
 
         self.net = nn.Sequential(
-            #nn.Linear(self.n_ind_dim*self.n_step_per_batch, 1024),
             nn.Linear(self.n_ind_dim, 1024),
-            #nn.Linear(self.n_step_per_batch, 1024),
-            #nn.Linear(self.n_ind_dim, 1024),
-            #nn.Linear(self.n_step_per_batch, 1024),
-            #nn.GELU(),
-            #nn.Linear(512, 512),
             nn.ReLU(),
             nn.Linear(1024, 1024),
             nn.ReLU(),
-            #nn.Linear(1024, 1024),
-            #nn.GELU(),
-            #nn.ReLU(),
             nn.Linear(1024, self.n_step_per_batch*self.n_ind_dim)
-            #nn.Linear(self.n_ind_dim*self.n_step_per_batch, self.n_step_per_batch*self.n_ind_dim)
-            #nn.Linear(1024, self.n_ind_dim)
-            #nn.Linear(1024, self.n_step_per_batch)
-            #nn.Linear(1024, self.n_ind_dim)
         )
     
     def reset_params(self):
@@ -209,69 +174,34 @@ class Model(nn.Module):
     def forward(self, index, net_iv):
         # apply mask
         xi = self.mask*self.xi
-
         xi = xi.repeat(self.bs, 1,1)
 
 
-        #var = self.net(net_iv.reshape(self.bs,-1))
-        #var = self.net(net_iv.permute(0,2,1)).permute(0,2,1)
-        #var = self.net(net_iv)
         var = self.net(net_iv[:,0,:])
         var = var.reshape(self.bs, self.n_step_per_batch, self.n_ind_dim)
 
-        #var_basis,_ = B.create_library_tensor(self.var_values, polynomial_order=2, use_trig=False)
         var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=False)
 
-        #var_basis = var_basis.unsqueeze(0)
-        #print(xi.shape, basis.shape, self.bs)
-        #t, num_var
-        #basis = self.basis[index:index+self.n_step_per_batch]
-        #rhs = basis@xi
         rhs = var_basis@xi
         rhs = rhs.permute(0,2,1)
 
-        #coeffs shape bs, step, order
 
         coeffs = torch.cat([self.z,self.o,self.z], dim=-1)
-        #coeffs = torch.cat([self.z,self.o], dim=-1)
-        #coeffs = torch.cat([self.z,self.init_coeffs], dim=-1)
         coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
-        #print(coeffs.shape)
-        #coeffs = torch.cat([self.z,coeffs], dim=-1)
-        #coeffs = torch.cat([coeffs, self.o, self.z], dim=-1)
-        #coeffs = torch.cat([coeffs, self.z], dim=-1)
-
-
-        #steps = self.steps.repeat(self.bs,1, self.n_step_per_batch-1)#.type_as(target_u)
-        #steps = steps.detach()
-        #steps = torch.sigmoid(steps).detach()#.detach()#.clip(min=0.01, max=0.9)#.detach()
-        #steps = (steps).detach() #.clip(min=0.01).detach()
-        #print(xi[0], xi.shape)
-        #init_iv = self.init_iv.detach()
 
         init_iv = var[:,0]
 
         x0,x1,eps,steps = self.l0_train(coeffs, rhs, init_iv, None)
-        #x0,x1,eps,steps = self.l0_train(coeffs, rhs, None, None)
-
-        #x0 = x0[:, 1:]
 
         return x0, steps, eps, var
 
 
 print('target shape', target_u.shape)
-#pad = torch.zeros(1,target_u.shape[1]).type_as(target_u)
-#tu = torch.cat([pad, target_u])
 tu = target_u
-#basis,basis_vars = basis.create_library(target_u.cpu().numpy(), polynomial_order=3, use_trig=False)
 
 
 model = Model(bs=batch_size,n_step=T, n_step_per_batch=n_step_per_batch, n_basis=ds.n_basis, device='cuda')
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-#optimizer = torch.optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
-#threshold = 0.025
-#threshold = 0.025
-threshold = 0.5
 
 if DBL:
     model = model.double()
@@ -288,7 +218,6 @@ def train():
     model.reset_params()
 
     print_eq()
-
     optimize()
 
     for step in range(100):
