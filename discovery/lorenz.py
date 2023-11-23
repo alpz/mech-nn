@@ -45,11 +45,9 @@ threshold = 0.5
 
 class LorenzDataset(Dataset):
     def __init__(self, n_step_per_batch=100, n_step=1000):
-        #_y = np.linspace(0, end, n_step)
         self.n_step_per_batch=n_step_per_batch
         self.n_step=n_step
         self.end= n_step*STEP
-        #print('step size ', end/n_step)
         x_train = self.generate()
 
         print('creating basis')
@@ -97,11 +95,12 @@ class LorenzDataset(Dataset):
 ds = LorenzDataset(n_step=T,n_step_per_batch=n_step_per_batch)#.generate()
 train_loader =DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True) 
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-target_u = torch.ones(10, dtype=dtype)
+#target_u = torch.ones(10, dtype=dtype)
 #target_u = target_u.permute(1,0)
-if cuda:
-    target_u = target_u.cuda()
+#if cuda:
+#    target_u = target_u.cuda()
 #print('data shape', target_u.shape)
 
     
@@ -120,26 +119,22 @@ class Model(nn.Module):
         self.n_ind_dim = 3
         self.n_step_per_batch = n_step_per_batch
 
-
         self.n_basis = ds.n_basis
 
-        self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim))).type_as(target_u)
+        self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim))).to(device)#.type_as(target_u)
 
 
-        self.mask = torch.ones_like(self.init_xi).type_as(target_u)
+        self.mask = torch.ones_like(self.init_xi).to(device)
 
         self.step_size = 0.001
-        self.steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1)
         self.xi = nn.Parameter(self.init_xi.clone())
 
-        init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2).type_as(target_u)
+        init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2)#.type_as(target_u)
         self.init_coeffs = nn.Parameter(init_coeffs)
         
         #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
-        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, **kwargs)
+        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs)
 
-        self.z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(target_u)
-        self.o = torch.ones(1, self.n_ind_dim, 1,1).type_as(target_u)
 
         self.net = nn.Sequential(
             nn.Linear(self.n_ind_dim, 1024),
@@ -176,34 +171,34 @@ class Model(nn.Module):
         rhs = var_basis@xi
         rhs = rhs.permute(0,2,1)
 
+        z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(net_iv)
+        o = torch.ones(1, self.n_ind_dim, 1,1).type_as(net_iv)
 
-        coeffs = torch.cat([self.z,self.o,self.z], dim=-1)
+        coeffs = torch.cat([z,o,z], dim=-1)
         coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
 
         init_iv = var[:,0]
 
-        self.steps = self.steps.type_as(net_iv)
+        steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+        #self.steps = self.steps.type_as(net_iv)
 
-        x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, self.steps)
+        x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
         x0 = x0.permute(0,2,1)
 
         return x0, steps, eps, var
 
 
-print('target shape', target_u.shape)
-tu = target_u
-
-
-model = Model(bs=batch_size,n_step=T, n_step_per_batch=n_step_per_batch, n_basis=ds.n_basis, device='cuda')
+model = Model(bs=batch_size,n_step=T, n_step_per_batch=n_step_per_batch, n_basis=ds.n_basis, device=device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 if DBL:
     model = model.double()
-if cuda:
-    model=model.cuda()
+#if cuda:
+model=model.to(device)
 
 
 def print_eq():
+    #print learned equation
     repr_dict = B.basis_repr(model.xi*model.mask, ds.basis_vars)
     for k,v in repr_dict.items():
         L.info(f'{k} = {v}')
@@ -239,22 +234,13 @@ def train():
         #print('aft', model.xi, model.init_xi, flush=True)
         optimize()
 
-def train_l1():
-    lc = 0.1
-    model.reset_params()
-    optimize(lc=lc)
-
-    for step in range(9):
-        model.reset_params()
-        #print('aft', model.xi, model.init_xi, flush=True)
-        optimize(lc=2*lc)
-
 
 def optimize(lc=0):
     for epoch in range(400):
         for i, (index, batch, basis) in enumerate(train_loader):
-            batch = batch.type_as(target_u)
-            basis = basis.type_as(target_u)
+            #batch = batch.type_as(target_u)
+            batch = batch.to(device)
+            #basis = basis.type_as(target_u)
 
             #print('in', batch.shape, basis.shape)
             optimizer.zero_grad()
