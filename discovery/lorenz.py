@@ -1,25 +1,14 @@
 
-import sys
-sys.path.append("../../")
+#import sys
+#sys.path.append("../../")
 
 import torch.nn as nn
 import torch
-#import lp_system
-#from lp_dyn import ODELP
-#from lp_dyn_step import ODELP
-#from lp_dyn_cent_step import ODELP
-#from lp_dyn_cent_sys_dim import ODESYSLP as ODELP
-#from lp_dyn_cent import ODELP
 from torch.nn.parameter import Parameter
 import numpy as np
 
-#from lp_dyn import ODELP
 import matplotlib.pyplot as plt
-import osqp
 import torch
-#from qp_primal_direct_batched_step import QPFunction
-#from qp_primal_direct_batched_sys import QPFunction
-#from qp_qp import QPFunction 
 import torch.optim as optim
 from matplotlib.animation import FuncAnimation
 from torch.autograd import gradcheck
@@ -30,10 +19,10 @@ import pytorch_lightning as pl
 from torch.utils.data import Dataset, DataLoader
 from scipy.integrate import odeint
 
-from source import write_source_files, create_log_dir
+from extras.source import write_source_files, create_log_dir
 
-#from ode import ODEINDLayer, ODESYSLayer
-from ode import ODEForwardINDLayer#, ODESYSLayer
+from solver.ode_layer import ODEINDLayer#, ODESYSLayer
+#from ode import ODEForwardINDLayer#, ODESYSLayer
 import discovery.basis as B
 import ipdb
 import extras.logger as logger
@@ -140,12 +129,14 @@ class Model(nn.Module):
         self.mask = torch.ones_like(self.init_xi).type_as(target_u)
 
         self.step_size = 0.001
+        self.steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1)
         self.xi = nn.Parameter(self.init_xi.clone())
 
         init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2).type_as(target_u)
         self.init_coeffs = nn.Parameter(init_coeffs)
         
-        self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
+        #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
+        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, **kwargs)
 
         self.z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(target_u)
         self.o = torch.ones(1, self.n_ind_dim, 1,1).type_as(target_u)
@@ -191,7 +182,10 @@ class Model(nn.Module):
 
         init_iv = var[:,0]
 
-        x0,x1,eps,steps = self.l0_train(coeffs, rhs, init_iv, None)
+        self.steps = self.steps.type_as(net_iv)
+
+        x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, self.steps)
+        x0 = x0.permute(0,2,1)
 
         return x0, steps, eps, var
 
@@ -267,6 +261,7 @@ def optimize(lc=0):
             #x0, steps, eps = model(index, batch[:,0,:])
             x0, steps, eps, var = model(index, batch)
             #x0 = x0#.squeeze()
+            #ipdb.set_trace()
             loss = (x0- batch).pow(2).mean()
             #loss = (x0- batch).pow(2).sum(dim=[1,2]).mean()
             #loss = (x0- var).pow(2).mean()
