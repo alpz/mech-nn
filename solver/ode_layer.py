@@ -3,9 +3,9 @@ import sys
 
 import torch.nn as nn
 import torch
-#from lp_dyn_cent_sys_dim import ODESYSLP as ODELP
-#from lp_dyn_cent_sys_sparse import ODESYSLP as ODELP_sys
-from solver.lp_sparse_forward_diff import ODESYSLP #as ODELP_sys
+from solver.lp_sparse_forward_diff import ODESYSLP 
+#Same as above but uses central difference for top level derivatives
+from solver.lp_sparse_forward_diff_cent import ODESYSLP as ODESYSLPCENT
 from torch.nn.parameter import Parameter
 import numpy as np
 
@@ -18,7 +18,7 @@ from solver.qp_primal_direct_batched_sparse_sys import QPFunction as QPFunctionS
 
 class ODEINDLayer(nn.Module):
     """ class for ODE with dimensions modeled independently"""
-    def __init__(self, bs, order, n_ind_dim, n_iv, n_step, n_iv_steps, solver_dbl=True, gamma=0.5, alpha=0.1, device=None):
+    def __init__(self, bs, order, n_ind_dim, n_iv, n_step, n_iv_steps, solver_dbl=True, gamma=0.5, alpha=0.1, cent_diff=False, device=None):
         super().__init__()
         # placeholder step size
         self.step_size = 0.1
@@ -44,7 +44,13 @@ class ODEINDLayer(nn.Module):
 
         dtype = torch.float64 if self.solver_dbl else torch.float32
 
-        self.ode = ODESYSLP(bs=bs*self.n_ind_dim, n_dim=self.n_dim, n_equations=self.n_equations, n_auxiliary=0, n_step=self.n_step, step_size=self.step_size, order=self.order,
+        
+        if cent_diff:
+            _ode_sys = ODESYSLPCENT
+        else:
+            _ode_sys = ODESYSLP
+
+        self.ode = _ode_sys(bs=bs*self.n_ind_dim, n_dim=self.n_dim, n_equations=self.n_equations, n_auxiliary=0, n_step=self.n_step, step_size=self.step_size, order=self.order,
                          n_iv=self.n_iv, n_iv_steps=self.n_iv_steps, dtype=dtype, device=self.device)
 
 
@@ -89,7 +95,7 @@ class ODEINDLayer(nn.Module):
         return u0, u1, u2, eps, steps
 
 class ODESYSLayer(nn.Module):
-    def __init__(self, bs, order, n_ind_dim, n_dim, n_equations, n_iv, n_iv_steps, n_step, solver_dbl=True, gamma=0.5, alpha=0.1, device=None):
+    def __init__(self, bs, order, n_ind_dim, n_dim, n_equations, n_iv, n_iv_steps, n_step, solver_dbl=True, gamma=0.5, alpha=0.1, cent_diff=False, device=None):
         super().__init__()
 
         # placeholder step size
@@ -115,7 +121,12 @@ class ODESYSLayer(nn.Module):
 
         dtype = torch.float64 if solver_dbl else torch.float32
 
-        self.ode = ODESYSLP(bs=bs*self.n_ind_dim, n_dim=self.n_dim, n_equations=n_equations, n_auxiliary=0, n_step=self.n_step, step_size=self.step_size, order=self.order,
+        if cent_diff:
+            _ode_sys = ODESYSLPCENT
+        else:
+            _ode_sys = ODESYSLP
+
+        self.ode = _ode_sys(bs=bs*self.n_ind_dim, n_dim=self.n_dim, n_equations=n_equations, n_auxiliary=0, n_step=self.n_step, step_size=self.step_size, order=self.order,
                          n_iv=self.n_iv, n_iv_steps=self.n_iv_steps, dtype=dtype, device=self.device)
 
 
