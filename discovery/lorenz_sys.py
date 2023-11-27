@@ -132,6 +132,7 @@ class Model(nn.Module):
         self.mask = torch.ones_like(self.init_xi).to(device)
 
         self.step_size = 0.001
+        #self.step_size = nn.Parameter(logit(step_size)*torch.ones(1,))
         self.xi = nn.Parameter(self.init_xi.clone())
 
         init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2, dtype=dtype)#.type_as(target_u)
@@ -141,12 +142,13 @@ class Model(nn.Module):
         #self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs)
 
         self.ode = ODESYSLayer(bs=bs, n_ind_dim=self.n_ind_dim, order=self.order, n_equations=self.n_dim, 
-                                     n_dim=self.n_dim, n_iv=self.n_iv, n_step=self.n_step_per_batch, n_iv_steps=1, solver_dbl=True)
+                                     n_dim=self.n_dim, n_iv=self.n_iv, n_step=self.n_step_per_batch, n_iv_steps=1, 
+                                     cent_diff=True, solver_dbl=True)
 
 
         self.net = nn.Sequential(
-            nn.Linear(self.n_dim, 2048),
-            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
+            #nn.Linear(self.n_dim, 2048),
+            nn.Linear(self.n_step_per_batch*self.n_dim, 2048),
             nn.ReLU(),
             nn.Linear(2048, 2048),
             nn.ReLU(),
@@ -182,7 +184,9 @@ class Model(nn.Module):
         xi = xi.repeat(self.bs, 1,1)
 
 
-        var = self.net(net_iv[:,0,:])
+        net_in = net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_dim)
+        #var = self.net(net_iv[:,0,:])
+        var = self.net(net_in) + net_in
         #var = self.net(net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_ind_dim))
         #steps = var[:, :self.n_ind_dim*(self.n_step_per_batch-1)]
         #steps = torch.sigmoid(steps)
@@ -210,6 +214,7 @@ class Model(nn.Module):
         init_iv = var[:,0]
 
         steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1, self.n_dim).type_as(net_iv)
+        #steps = torch.sigmoid(steps).clip(min=0.0001)
         #self.steps = self.steps.type_as(net_iv)
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
@@ -278,11 +283,13 @@ def optimize(lc=0):
             x0, steps, eps, var = model(index, batch)
             #x0 = x0#.squeeze()
             #ipdb.set_trace()
-            loss = (x0- batch).pow(2).mean()
+            loss = (x0- batch).pow(2)#.mean()
+            loss = loss +  (var- batch).pow(2)#.mean()
+            loss = loss.sum(dim=[-2,-1]).mean()
+
             #loss = (x0- batch).pow(2).sum(dim=[1,2]).mean()
             #loss = (x0- var).pow(2).mean()
             #loss = loss +  (var- batch).pow(2).sum(dim=[1,2]).mean()
-            loss = loss +  (var- batch).pow(2).mean()
             #loss = loss + eps.pow(2).mean()
 
             #loss_l1 = model.xi.abs().sum()

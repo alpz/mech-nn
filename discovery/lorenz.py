@@ -36,11 +36,11 @@ write_source_files(log_dir)
 L = logger.setup(log_dir)
 
 #N = 2
-DBL=True
+DBL=False
 dtype = torch.float64 if DBL else torch.float32
 STEP = 0.001
 cuda=True
-T = 20000
+T = 80000
 n_step_per_batch = 50
 batch_size= 20
 threshold = 0.5
@@ -130,7 +130,7 @@ class Model(nn.Module):
         self.mask = torch.ones_like(self.init_xi).to(device)
 
         #self.step_size = 0.001
-        self.step_size = nn.Parameter(logit(0.0001)*torch.ones(1,))
+        self.step_size = nn.Parameter(logit(0.001)*torch.ones(1,))
         self.xi = nn.Parameter(self.init_xi.clone())
 
         init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2, dtype=dtype)#.type_as(target_u)
@@ -166,12 +166,12 @@ class Model(nn.Module):
 
         self.coeff_net = nn.Sequential(
             #nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
-            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 4096),
-            #nn.ReLU(),
-            #nn.Linear(4096, 4096),
-            #nn.ReLU(),
-            #nn.Linear(4096, self.n_step_per_batch*self.n_ind_dim)
-            nn.Linear(self.n_step_per_batch*self.n_ind_dim, self.n_step_per_batch*self.n_ind_dim)
+            nn.Linear(self.n_step_per_batch*self.n_ind_dim, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, self.n_step_per_batch*self.n_ind_dim)
+            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, self.n_step_per_batch*self.n_ind_dim)
         )
 
         self.steps_layer = nn.Linear(1024, (self.n_step_per_batch-1)*self.n_ind_dim)
@@ -208,7 +208,7 @@ class Model(nn.Module):
         #_var = self._net(net_iv[:,0,:])
         #_var = self._net(net_in)
         #var = self.coeff_net(_var)
-        var = self.coeff_net(net_in) #+ net_in
+        var = self.coeff_net(net_in) + net_in
 
         #steps = self.steps_layer(self._steps_net(net_in))
         #steps = torch.sigmoid(steps).clip(min=0.001)
@@ -292,7 +292,7 @@ def train():
 
 
 def optimize(lc=0):
-    for epoch in range(200):
+    for epoch in range(400):
         for i, (index, batch, basis) in enumerate(train_loader):
             #batch = batch.type_as(target_u)
             batch = batch.to(device)
