@@ -36,14 +36,14 @@ write_source_files(log_dir)
 L = logger.setup(log_dir)
 
 #N = 2
-DBL=False
+DBL=True
 dtype = torch.float64 if DBL else torch.float32
 STEP = 0.001
 cuda=True
-T = 80000
+T = 20000
 n_step_per_batch = 50
 batch_size= 20
-threshold = 0.5
+threshold = 0.1
 
 class LorenzDataset(Dataset):
     def __init__(self, n_step_per_batch=100, n_step=1000):
@@ -87,7 +87,7 @@ class LorenzDataset(Dataset):
 
     def __getitem__(self, idx):
         #i = idx*self.n_step_per_batch
-        i = idx*25
+        i = idx #idx*25
         d=  self.x_train[i:i+self.n_step_per_batch]
         b=  self.basis[i:i+self.n_step_per_batch]
         return i, d, b
@@ -116,6 +116,7 @@ class Model(nn.Module):
         self.bs = bs
         #self.n_coeff = self.n_step * (self.order + 1)
         self.device = device
+        #self.n_iv=1
         self.n_iv=1
         #self.nx = 43
         self.n_ind_dim = 3
@@ -128,19 +129,20 @@ class Model(nn.Module):
 
         self.mask = torch.ones_like(self.init_xi).to(device)
 
-        self.step_size = 0.001
+        #self.step_size = 0.001
+        self.step_size = nn.Parameter(logit(0.0001)*torch.ones(1,))
         self.xi = nn.Parameter(self.init_xi.clone())
 
         init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2, dtype=dtype)#.type_as(target_u)
         self.init_coeffs = nn.Parameter(init_coeffs)
         
         #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
-        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs)
+        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs, gamma=0.5, alpha=0.)
 
 
         self._net = nn.Sequential(
-            nn.Linear(self.n_ind_dim, 2048),
-            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
+            #nn.Linear(self.n_ind_dim, 2048),
+            nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
             nn.ReLU(),
             nn.Linear(2048, 2048),
             nn.ReLU(),
@@ -151,20 +153,37 @@ class Model(nn.Module):
             #nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
         )
 
-        self.coeff_net = nn.Sequential(
-            nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
+        self._steps_net = nn.Sequential(
+            #nn.Linear(self.n_ind_dim, 1024),
+            nn.Linear(self.n_step_per_batch*self.n_ind_dim, 1024),
+            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
+            nn.ReLU(),
+            nn.Linear(1024, 1024),
+            nn.ReLU(),
+            #nn.Linear(1024, 1024),
+            #nn.ReLU(),
         )
 
-        self.step_layer = nn.Sequential(
-            nn.Linear(2048, (self.n_step_per_batch-1)*self.n_ind_dim)
+        self.coeff_net = nn.Sequential(
+            #nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
+            nn.Linear(self.n_step_per_batch*self.n_ind_dim, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, 4096),
+            nn.ReLU(),
+            nn.Linear(4096, self.n_step_per_batch*self.n_ind_dim)
+            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, self.n_step_per_batch*self.n_ind_dim)
         )
+
+        self.steps_layer = nn.Linear(1024, (self.n_step_per_batch-1)*self.n_ind_dim)
 
         #self.steps_layer = nn.Linear(2048, self.step_dim)
 
         #set step bias to set initial step
-        step_bias = logit(0.01)
-        self.steps_layer.weight.data.fill_(0.0)
-        self.steps_layer.bias.data.fill_(step_bias)
+        #step_bias = logit(self.step_size)
+        #self.steps_layer.weight.data.fill_(0.0)
+        #self.steps_layer.bias.data.fill_(step_bias)
     
     def reset_params(self):
         #self.xi = nn.Parameter(self.init_xi)
@@ -184,14 +203,18 @@ class Model(nn.Module):
         xi = self.mask*self.xi
         xi = xi.repeat(self.bs, 1,1)
 
+        #_net_in = net_iv- net_iv[:,0:1,:]
+        net_in = net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_ind_dim)
+        #_net_in = _net_in.reshape(-1, self.n_step_per_batch*self.n_ind_dim)
 
-        _var = self._net(net_iv[:,0,:])
+        #_var = self._net(net_iv[:,0,:])
+        #_var = self._net(net_in)
+        #var = self.coeff_net(_var)
+        var = self.coeff_net(net_in) #+ net_in
 
-        var = self.coeff_net(_var)
-        steps = self.steps_layer(_var)
-        steps = torch.sigmoid(steps)
+        #steps = self.steps_layer(self._steps_net(net_in))
+        #steps = torch.sigmoid(steps).clip(min=0.001)
 
-        #var = self.net(net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_ind_dim))
         #steps = var[:, :self.n_ind_dim*(self.n_step_per_batch-1)]
         #steps = torch.sigmoid(steps)
 
@@ -212,10 +235,12 @@ class Model(nn.Module):
 
         init_iv = var[:,0]
 
-        #steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
-        #self.steps = self.steps.type_as(net_iv)
+        steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+        steps = torch.sigmoid(steps).clip(min=0.0001)
+
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
+        #x0,x1,x2,eps,steps = self.ode(coeffs, rhs, None, steps)
         x0 = x0.permute(0,2,1)
 
         return x0, steps, eps, var
@@ -275,17 +300,20 @@ def optimize(lc=0):
             batch = batch.to(device)
             #basis = basis.type_as(target_u)
 
+            shift = batch[:,0:1,:]
+            batch_in = batch#-shift
             #print('in', batch.shape, basis.shape)
             optimizer.zero_grad()
             #x0, steps, eps = model(index, batch[:,0,:])
-            x0, steps, eps, var = model(index, batch)
+            x0, steps, eps, var = model(index, batch_in)
             #x0 = x0#.squeeze()
             #ipdb.set_trace()
-            loss = (x0- batch).pow(2).mean()
+            loss = (x0- batch).pow(2) #+ .mean()
+            loss = loss +  (var- batch).pow(2)
+            loss = loss.sum(dim=[-1,-2]).mean()
             #loss = (x0- batch).pow(2).sum(dim=[1,2]).mean()
             #loss = (x0- var).pow(2).mean()
             #loss = loss +  (var- batch).pow(2).sum(dim=[1,2]).mean()
-            loss = loss +  (var- batch).pow(2).mean()
             #loss = loss + eps.pow(2).mean()
 
             #loss_l1 = model.xi.abs().sum()

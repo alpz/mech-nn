@@ -120,6 +120,7 @@ class Model(nn.Module):
         #self.nx = 43
         self.n_ind_dim = 1
         self.n_dim = 3
+        self.n_equation = 3
         self.n_step_per_batch = n_step_per_batch
 
         self.n_basis = ds.n_basis
@@ -195,10 +196,12 @@ class Model(nn.Module):
         rhs = rhs.permute(0,2,1)
 
         #equation, step, dimension
-        z = torch.zeros(1, self.n_dim, 1,1).type_as(net_iv)
-        o = torch.ones(1, self.n_dim, 1,1).type_as(net_iv)
+        z = torch.zeros(1, self.n_equation, 1,self.n_dim, self.order+1).type_as(net_iv)
+        #o = torch.ones(1, self.n_dim, 1,1).type_as(net_iv)
+        for i in self.n_dim:
+            z[:,i,:,i,1] = 1.
 
-        coeffs = torch.cat([z,o,z], dim=-1)
+        #coeffs = torch.cat([z,o,z], dim=-1)
         coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
 
         init_iv = var[:,0]
