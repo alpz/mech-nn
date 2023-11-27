@@ -125,7 +125,8 @@ class Model(nn.Module):
 
         self.n_basis = ds.n_basis
 
-        self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim)), dtype=dtype).to(device)#.type_as(target_u)
+        #self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim)), dtype=dtype).to(device)#.type_as(target_u)
+        self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_dim)), dtype=dtype).to(device)#.type_as(target_u)
 
 
         self.mask = torch.ones_like(self.init_xi).to(device)
@@ -139,12 +140,12 @@ class Model(nn.Module):
         #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
         #self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs)
 
-        self.ode_layer = ODESYSLayer(bs=bs, n_ind_dim=self.n_ind_dim, order=self.order, n_equations=self.n_dim, 
+        self.ode = ODESYSLayer(bs=bs, n_ind_dim=self.n_ind_dim, order=self.order, n_equations=self.n_dim, 
                                      n_dim=self.n_dim, n_iv=self.n_iv, n_step=self.n_step_per_batch, n_iv_steps=1, solver_dbl=True)
 
 
         self.net = nn.Sequential(
-            nn.Linear(self.n_ind_dim, 2048),
+            nn.Linear(self.n_dim, 2048),
             #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
             nn.ReLU(),
             nn.Linear(2048, 2048),
@@ -152,7 +153,7 @@ class Model(nn.Module):
             nn.Linear(2048, 2048),
             nn.ReLU(),
             #nn.Linear(1024, self.n_step_per_batch*self.n_ind_dim + self.n_ind_dim*(self.n_step_per_batch-1))
-            nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
+            nn.Linear(2048, self.n_step_per_batch*self.n_dim)
         )
 
         #self.steps_layer = nn.Linear(2048, self.step_dim)
@@ -188,7 +189,7 @@ class Model(nn.Module):
 
         #var = var[:, self.n_ind_dim*(self.n_step_per_batch-1):]
 
-        var = var.reshape(self.bs, self.n_step_per_batch, self.n_ind_dim)
+        var = var.reshape(self.bs, self.n_step_per_batch, self.n_dim)
 
         var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=False)
 
@@ -196,21 +197,23 @@ class Model(nn.Module):
         rhs = rhs.permute(0,2,1)
 
         #equation, step, dimension
-        z = torch.zeros(1, self.n_equation, 1,self.n_dim, self.order+1).type_as(net_iv)
+        coeffs = torch.zeros(1, self.n_equation, 1,self.n_dim, self.order+1).type_as(net_iv)
         #o = torch.ones(1, self.n_dim, 1,1).type_as(net_iv)
-        for i in self.n_dim:
-            z[:,i,:,i,1] = 1.
+
+        for i in range(self.n_dim):
+            coeffs[:,i,:,i,1] = 1.
 
         #coeffs = torch.cat([z,o,z], dim=-1)
-        coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
+
+        coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1,1)
 
         init_iv = var[:,0]
 
-        steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+        steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1, self.n_dim).type_as(net_iv)
         #self.steps = self.steps.type_as(net_iv)
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
-        x0 = x0.permute(0,2,1)
+        x0 = x0.squeeze()
 
         return x0, steps, eps, var
 

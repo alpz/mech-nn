@@ -43,7 +43,7 @@ cuda=True
 T = 20000
 n_step_per_batch = 50
 batch_size= 20
-threshold = 0.1
+threshold = 0.5
 
 class LorenzDataset(Dataset):
     def __init__(self, n_step_per_batch=100, n_step=1000):
@@ -166,14 +166,12 @@ class Model(nn.Module):
 
         self.coeff_net = nn.Sequential(
             #nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
-            nn.Linear(self.n_step_per_batch*self.n_ind_dim, 4096),
-            nn.ReLU(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(),
-            nn.Linear(4096, 4096),
-            nn.ReLU(),
-            nn.Linear(4096, self.n_step_per_batch*self.n_ind_dim)
-            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, self.n_step_per_batch*self.n_ind_dim)
+            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 4096),
+            #nn.ReLU(),
+            #nn.Linear(4096, 4096),
+            #nn.ReLU(),
+            #nn.Linear(4096, self.n_step_per_batch*self.n_ind_dim)
+            nn.Linear(self.n_step_per_batch*self.n_ind_dim, self.n_step_per_batch*self.n_ind_dim)
         )
 
         self.steps_layer = nn.Linear(1024, (self.n_step_per_batch-1)*self.n_ind_dim)
