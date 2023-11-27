@@ -21,7 +21,7 @@ from scipy.integrate import odeint
 
 from extras.source import write_source_files, create_log_dir
 
-from solver.ode_layer import ODEINDLayer#, ODESYSLayer
+from solver.ode_layer import ODESYSLayer
 #from ode import ODEForwardINDLayer#, ODESYSLayer
 import discovery.basis as B
 import ipdb
@@ -118,7 +118,8 @@ class Model(nn.Module):
         self.device = device
         self.n_iv=1
         #self.nx = 43
-        self.n_ind_dim = 3
+        self.n_ind_dim = 1
+        self.n_dim = 3
         self.n_step_per_batch = n_step_per_batch
 
         self.n_basis = ds.n_basis
@@ -135,36 +136,30 @@ class Model(nn.Module):
         self.init_coeffs = nn.Parameter(init_coeffs)
         
         #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
-        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs)
+        #self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, **kwargs)
+
+        self.ode_layer = ODESYSLayer(bs=bs, n_ind_dim=self.n_ind_dim, order=self.order, n_equations=self.n_dim, 
+                                     n_dim=self.n_dim, n_iv=self.n_iv, n_step=self.n_step_per_batch, n_iv_steps=1, solver_dbl=True)
 
 
-        self._net = nn.Sequential(
+        self.net = nn.Sequential(
             nn.Linear(self.n_ind_dim, 2048),
             #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
             nn.ReLU(),
             nn.Linear(2048, 2048),
             nn.ReLU(),
             nn.Linear(2048, 2048),
-            #nn.ReLU(),
             nn.ReLU(),
             #nn.Linear(1024, self.n_step_per_batch*self.n_ind_dim + self.n_ind_dim*(self.n_step_per_batch-1))
-            #nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
-        )
-
-        self.coeff_net = nn.Sequential(
             nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
-        )
-
-        self.step_layer = nn.Sequential(
-            nn.Linear(2048, (self.n_step_per_batch-1)*self.n_ind_dim)
         )
 
         #self.steps_layer = nn.Linear(2048, self.step_dim)
 
-        #set step bias to set initial step
-        step_bias = logit(0.01)
-        self.steps_layer.weight.data.fill_(0.0)
-        self.steps_layer.bias.data.fill_(step_bias)
+        #set step bias to make initial step 0.1
+        #step_bias = logit(0.1)
+        #self.steps_layer.weight.data.fill_(0.0)
+        #self.steps_layer.bias.data.fill_(step_bias)
     
     def reset_params(self):
         #self.xi = nn.Parameter(self.init_xi)
@@ -185,12 +180,7 @@ class Model(nn.Module):
         xi = xi.repeat(self.bs, 1,1)
 
 
-        _var = self._net(net_iv[:,0,:])
-
-        var = self.coeff_net(_var)
-        steps = self.steps_layer(_var)
-        steps = torch.sigmoid(steps)
-
+        var = self.net(net_iv[:,0,:])
         #var = self.net(net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_ind_dim))
         #steps = var[:, :self.n_ind_dim*(self.n_step_per_batch-1)]
         #steps = torch.sigmoid(steps)
@@ -204,15 +194,16 @@ class Model(nn.Module):
         rhs = var_basis@xi
         rhs = rhs.permute(0,2,1)
 
-        z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(net_iv)
-        o = torch.ones(1, self.n_ind_dim, 1,1).type_as(net_iv)
+        #equation, step, dimension
+        z = torch.zeros(1, self.n_dim, 1,1).type_as(net_iv)
+        o = torch.ones(1, self.n_dim, 1,1).type_as(net_iv)
 
         coeffs = torch.cat([z,o,z], dim=-1)
         coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
 
         init_iv = var[:,0]
 
-        #steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+        steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
         #self.steps = self.steps.type_as(net_iv)
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
@@ -242,7 +233,7 @@ def train():
     print_eq()
     optimize()
 
-    for step in range(10):
+    for step in range(100):
         #threshold
         params = model.xi
         mask = (params.abs() > threshold).float()
@@ -269,7 +260,7 @@ def train():
 
 
 def optimize(lc=0):
-    for epoch in range(200):
+    for epoch in range(400):
         for i, (index, batch, basis) in enumerate(train_loader):
             #batch = batch.type_as(target_u)
             batch = batch.to(device)
