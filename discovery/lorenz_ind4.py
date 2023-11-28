@@ -40,10 +40,10 @@ DBL=True
 dtype = torch.float64 if DBL else torch.float32
 STEP = 0.001
 cuda=True
-T = 80000
+T = 40000
 n_step_per_batch = 50
 batch_size= 20
-threshold = 0.5
+threshold = 0.1
 
 
 class LorenzDataset(Dataset):
@@ -53,14 +53,13 @@ class LorenzDataset(Dataset):
         self.end= n_step*STEP
         x_train = self.generate()
 
-        self.down_sample = 25
-
+        self.down_sample = 1
 
         self.x_train = torch.tensor(x_train, dtype=dtype) 
         self.x_train = self.x_train 
 
         #Create basis for some stats. Actual basis is in the model
-        basis,basis_vars =B.create_library(x_train, polynomial_order=2, use_trig=False, constant=False)
+        basis,basis_vars =B.create_library(x_train, polynomial_order=2, use_trig=False, constant=True)
         self.basis = torch.tensor(basis)
         self.basis_vars = basis_vars
         self.n_basis = self.basis.shape[1]
@@ -130,19 +129,17 @@ class Model(nn.Module):
         self.init_coeffs = nn.Parameter(init_coeffs)
         
         #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
-        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, n_iv_steps=1, cent_diff=False, **kwargs)
+        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, 
+                                    n_iv=self.n_iv, n_iv_steps=1, cent_diff=False, gamma=0.3, alpha=1, **kwargs)
 
 
         self.net = nn.Sequential(
-            nn.Linear(self.n_ind_dim, 2048),
-            #nn.Linear(self.n_step_per_batch*self.n_ind_dim, 2048),
+            #nn.Linear(self.n_ind_dim, 1024),
+            nn.Linear(self.n_step_per_batch*self.n_ind_dim, 1024),
             nn.ReLU(),
-            nn.Linear(2048, 2048),
+            nn.Linear(1024, 1024),
             nn.ReLU(),
-            nn.Linear(2048, 2048),
-            nn.ReLU(),
-            #nn.Linear(1024, self.n_step_per_batch*self.n_ind_dim + self.n_ind_dim*(self.n_step_per_batch-1))
-            nn.Linear(2048, self.n_step_per_batch*self.n_ind_dim)
+            nn.Linear(1024, self.n_step_per_batch*self.n_ind_dim)
         )
     
     def reset_params(self):
@@ -164,7 +161,8 @@ class Model(nn.Module):
         xi = xi.repeat(self.bs, 1,1)
 
 
-        var = self.net(net_iv[:,0,:])
+        var = self.net(net_iv.reshape(self.bs,-1))
+
         #var = self.net(net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_ind_dim))
         #steps = var[:, :self.n_ind_dim*(self.n_step_per_batch-1)]
         #steps = torch.sigmoid(steps)
@@ -173,7 +171,7 @@ class Model(nn.Module):
 
         var = var.reshape(self.bs, self.n_step_per_batch, self.n_ind_dim)
 
-        var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=False)
+        var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=True)
 
         rhs = var_basis@xi
         rhs = rhs.permute(0,2,1)
@@ -195,7 +193,7 @@ class Model(nn.Module):
         return x0, steps, eps, var
 
 model = Model(bs=batch_size,n_step=T, n_step_per_batch=n_step_per_batch, n_basis=ds.n_basis, device=device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
 if DBL:
     model = model.double()
