@@ -117,8 +117,8 @@ class Model(nn.Module):
 
         self.n_basis = ds.n_basis
 
-        self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim)), dtype=dtype).to(device)#.type_as(target_u)
-
+        #self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim)), dtype=dtype).to(device)#.type_as(target_u)
+        self.init_xi = torch.randn((1, self.n_basis, self.n_ind_dim), dtype=dtype).to(device)#.type_as(target_u)
 
         self.mask = torch.ones_like(self.init_xi).to(device)
 
@@ -145,7 +145,7 @@ class Model(nn.Module):
     def reset_params(self):
         #self.xi = nn.Parameter(self.init_xi)
         #self.xi.data = self.init_xi.clone()
-        self.xi.data = torch.rand_like(self.init_xi)
+        self.xi.data = torch.randn_like(self.init_xi)
 
     def update_mask(self, mask):
         self.mask = self.mask*mask
