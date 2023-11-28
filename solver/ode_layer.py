@@ -18,7 +18,7 @@ from solver.qp_primal_direct_batched_sparse_sys import QPFunction as QPFunctionS
 
 class ODEINDLayer(nn.Module):
     """ class for ODE with dimensions modeled independently"""
-    def __init__(self, bs, order, n_ind_dim, n_iv, n_step, n_iv_steps, solver_dbl=True, gamma=0.5, alpha=0.1, cent_diff=False, device=None):
+    def __init__(self, bs, order, n_ind_dim, n_iv, n_step, n_iv_steps, solver_dbl=True, gamma=0.5, alpha=0.1, cent_diff=False, double_ret=False, device=None):
         super().__init__()
         # placeholder step size
         self.step_size = 0.1
@@ -54,7 +54,7 @@ class ODEINDLayer(nn.Module):
                          n_iv=self.n_iv, n_iv_steps=self.n_iv_steps, dtype=dtype, device=self.device)
 
 
-        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=gamma, alpha=alpha, double_ret=False)
+        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=gamma, alpha=alpha, double_ret=double_ret)
 
     def forward(self, coeffs, rhs, iv_rhs, steps):
         coeffs = coeffs.reshape(self.bs*self.n_ind_dim, self.n_step,self.n_dim, self.order + 1)
@@ -90,12 +90,12 @@ class ODEINDLayer(nn.Module):
 
         u0 = u[:,:,:,0]
         u1 = u[:,:,:,1]
-        u2 = u[:,:,:,2]
+        u2 = u[:,:,:,2] if self.order > 1 else None
         
         return u0, u1, u2, eps, steps
 
 class ODESYSLayer(nn.Module):
-    def __init__(self, bs, order, n_ind_dim, n_dim, n_equations, n_iv, n_iv_steps, n_step, solver_dbl=True, gamma=0.5, alpha=0.1, cent_diff=False, device=None):
+    def __init__(self, bs, order, n_ind_dim, n_dim, n_equations, n_iv, n_iv_steps, n_step, solver_dbl=True, gamma=0.5, alpha=0.1, cent_diff=False, double_ret=False, device=None):
         super().__init__()
 
         # placeholder step size
@@ -130,7 +130,7 @@ class ODESYSLayer(nn.Module):
                          n_iv=self.n_iv, n_iv_steps=self.n_iv_steps, dtype=dtype, device=self.device)
 
 
-        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=gamma, alpha=alpha)
+        self.qpf = QPFunctionSys(self.ode, n_step=self.n_step, order=self.order, n_iv=self.n_iv, gamma=gamma, alpha=alpha, double_ret=double_ret)
 
     def forward(self, coeffs, rhs, iv_rhs, steps):
         coeffs = coeffs.reshape(self.bs*self.n_ind_dim, self.n_equations, self.n_step,self.n_dim, self.order + 1)
@@ -139,7 +139,8 @@ class ODESYSLayer(nn.Module):
         rhs = rhs.reshape(self.bs*self.n_ind_dim, self.n_equations*self.n_step)
 
         #iv_steps, n_dim, n_iv
-        iv_rhs = iv_rhs.reshape(self.bs*self.n_ind_dim, self.n_iv_steps*self.n_dim*self.n_iv)
+        if iv_rhs is not None:
+            iv_rhs = iv_rhs.reshape(self.bs*self.n_ind_dim, self.n_iv_steps*self.n_dim*self.n_iv)
 
         steps = steps.reshape(self.bs*self.n_ind_dim,self.n_step-1,self.n_dim)
 
@@ -166,6 +167,7 @@ class ODESYSLayer(nn.Module):
 
         u0 = u[:,:,:,:,0]
         u1 = u[:,:,:,:,1]
-        u2 = u[:,:,:,:,2]
+        u2 = u[:,:,:,:,2] if self.order > 1 else None
         
         return u0, u1, u2,eps, steps
+        #return u0, u1, eps, steps
