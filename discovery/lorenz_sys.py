@@ -36,13 +36,12 @@ log_dir, run_id = create_log_dir(root='logs')
 write_source_files(log_dir)
 L = logger.setup(log_dir, stdout=False)
 
-#N = 2
 DBL=True
 dtype = torch.float64 if DBL else torch.float32
 STEP = 0.001
 cuda=True
-T = 20000
-n_step_per_batch = 20
+T = 80000
+n_step_per_batch = 25
 batch_size= 60
 threshold = 0.1
 
@@ -54,14 +53,14 @@ class LorenzDataset(Dataset):
         self.end= n_step*STEP
         x_train = self.generate()
 
-        self.down_sample = 1
+        self.down_sample = 20
 
 
         self.x_train = torch.tensor(x_train, dtype=dtype) 
         self.x_train = self.x_train 
 
         #Create basis for some stats. Actual basis is in the model
-        basis,basis_vars =B.create_library(x_train, polynomial_order=2, use_trig=False, constant=True)
+        basis,basis_vars =B.create_library(x_train, polynomial_order=2, use_trig=False, constant=False)
         self.basis = torch.tensor(basis)
         self.basis_vars = basis_vars
         self.n_basis = self.basis.shape[1]
@@ -89,7 +88,8 @@ class LorenzDataset(Dataset):
     def __getitem__(self, idx):
         i = idx*self.down_sample
         d=  self.x_train[i:i+self.n_step_per_batch]
-        return i, d
+        o=  self.x_train[i+self.n_step_per_batch:i+2*self.n_step_per_batch]
+        return i, d,o
 
 
 ds = LorenzDataset(n_step=T,n_step_per_batch=n_step_per_batch)#.generate()
@@ -133,11 +133,12 @@ class Model(nn.Module):
         
         self.ode = ODESYSLayer(bs=bs, n_ind_dim=self.n_ind_dim, order=self.order, n_equations=self.n_dim, 
                                      n_dim=self.n_dim, n_iv=self.n_iv, n_step=self.n_step_per_batch, n_iv_steps=1, 
-                                     cent_diff=True, solver_dbl=True, double_ret=DBL, gamma=0.5, alpha=0.)
+                                     cent_diff=False, solver_dbl=True, double_ret=DBL, gamma=0.5, alpha=0.)
 
 
         self.net = nn.Sequential(
             nn.Linear(self.n_step_per_batch*self.n_dim, 2048),
+            #nn.Linear(self.n_dim, 2048),
             nn.ReLU(),
             nn.Linear(2048, 2048),
             nn.ReLU(),
@@ -161,11 +162,12 @@ class Model(nn.Module):
 
         net_in = net_iv.reshape(-1, self.n_step_per_batch*self.n_dim)
         var = self.net(net_in) + net_in
+        #var = self.net(net_iv[:,0,:]) #+ net_in
 
 
         var = var.reshape(self.bs, self.n_step_per_batch, self.n_dim)
 
-        var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=True)
+        var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=False)
 
         rhs = var_basis@xi
         rhs = rhs.permute(0,2,1)
@@ -183,7 +185,7 @@ class Model(nn.Module):
 
 
         steps = self.step_size.repeat(self.bs, self.n_ind_dim, self.n_step_per_batch-1, 1).type_as(net_iv)
-        steps = torch.sigmoid(steps).clip(min=0.0001)
+        steps = torch.sigmoid(steps).clip(min=0.0001).detach()
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
         x0 = x0.squeeze()
@@ -256,22 +258,26 @@ def train():
         if step > 0:
             model.update_mask(mask)
             model.reset_params()
-        optimize()
+        if step == 0:
+            nepoch = 400
+        else:
+            nepoch = 100
+        optimize(nepoch)
 
 
-def optimize():
-    nepoch = 400
+def optimize(nepoch=400):
     with tqdm(total=nepoch) as pbar:
         for epoch in range(nepoch):
             pbar.update(1)
-            for i, (index, batch) in enumerate(train_loader):
-                batch = batch.to(device)
+            for i, (index, batch_in, batch_out) in enumerate(train_loader):
+                batch_in = batch_in.to(device)
+                batch_out = batch_in #batch_out.to(device)
 
                 optimizer.zero_grad()
-                x0, steps, eps, var = model(index, batch)
+                x0, steps, eps, var = model(index, batch_in)
 
-                x_loss = (x0- batch).pow(2).sum(dim=[-2,-1]).mean()
-                v_loss = (var- batch).pow(2).sum(dim=[-2,-1]).mean()
+                x_loss = (x0- batch_out).pow(2).sum(dim=[-2,-1]).mean()
+                v_loss = (var- batch_out).pow(2).sum(dim=[-2,-1]).mean()
                 loss = x_loss + v_loss 
 
                 loss.backward()
@@ -281,6 +287,9 @@ def optimize():
             meps = eps.max().item()
             L.info(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} vloss {v_loss}')
             pbar.set_description(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} vloss {v_loss}')
+
+            #L.info(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
+            #pbar.set_description(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
 
 
 if __name__ == "__main__":
