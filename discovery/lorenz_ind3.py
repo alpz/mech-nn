@@ -272,7 +272,6 @@ def optimize(nepoch=400):
             pbar.update(1)
             for i, (index, batch_in) in enumerate(train_loader):
                 batch_in = batch_in.to(device)
-                batch_out = batch_out.to(device)
 
                 optimizer.zero_grad()
                 x0, steps, eps, var = model(index, batch_in)
