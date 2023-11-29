@@ -7,11 +7,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 import torch.optim as optim
-from matplotlib.animation import FuncAnimation
 from torch.autograd import gradcheck
 
-from torchmetrics.classification import Accuracy
-import pytorch_lightning as pl
 
 from torch.utils.data import Dataset, DataLoader
 from scipy.integrate import odeint
@@ -19,7 +16,6 @@ from scipy.integrate import odeint
 from extras.source import write_source_files, create_log_dir
 
 from solver.ode_layer import ODEINDLayer
-#from ode import ODEForwardINDLayer#, ODESYSLayer
 import discovery.basis as B
 import ipdb
 import extras.logger as logger
@@ -30,7 +26,6 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import discovery.plot as P
 
-#gradcheck = torch.sparse.as_sparse_gradcheck(torch.autograd.gradcheck)
 
 log_dir, run_id = create_log_dir(root='logs')
 write_source_files(log_dir)
@@ -43,6 +38,7 @@ cuda=True
 T = 40000
 n_step_per_batch = 50
 batch_size= 20
+#weights less than threshold (absolute) are set to 0 after each optimization step.
 threshold = 0.1
 
 
@@ -87,8 +83,7 @@ class LorenzDataset(Dataset):
     def __getitem__(self, idx):
         i = idx*self.down_sample
         d=  self.x_train[i:i+self.n_step_per_batch]
-        #o=  self.x_train[i+self.n_step_per_batch:i+2*self.n_step_per_batch]
-        return i, d#,o
+        return i, d
 
 
 ds = LorenzDataset(n_step=T,n_step_per_batch=n_step_per_batch)#.generate()
@@ -108,33 +103,29 @@ class Model(nn.Module):
         self.order = 2
         # state dimension
         self.bs = bs
-        #self.n_coeff = self.n_step * (self.order + 1)
         self.device = device
         self.n_iv=1
-        #self.nx = 43
         self.n_ind_dim = 3
         self.n_step_per_batch = n_step_per_batch
 
         self.n_basis = ds.n_basis
 
-        #self.init_xi = torch.tensor(np.random.random((1, self.n_basis, self.n_ind_dim)), dtype=dtype).to(device)#.type_as(target_u)
-        self.init_xi = torch.randn((1, self.n_basis, self.n_ind_dim), dtype=dtype).to(device)#.type_as(target_u)
+        self.init_xi = torch.randn((1, self.n_basis, self.n_ind_dim), dtype=dtype).to(device)
 
         self.mask = torch.ones_like(self.init_xi).to(device)
 
+        #Step size is fixed. Make this a parameter for learned step
         self.step_size = 0.001
         self.xi = nn.Parameter(self.init_xi.clone())
 
-        init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2, dtype=dtype)#.type_as(target_u)
+        init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2, dtype=dtype)
         self.init_coeffs = nn.Parameter(init_coeffs)
         
-        #self.l0_train = ODEForwardINDLayer(bs=bs, order=self.order, step_size=self.step_size, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, n_iv=self.n_iv, **kwargs)
         self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, 
                                     n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, gamma=0.3, alpha=1, **kwargs)
 
 
         self.net = nn.Sequential(
-            #nn.Linear(self.n_ind_dim, 1024),
             nn.Linear(self.n_step_per_batch*self.n_ind_dim, 1024),
             nn.ReLU(),
             nn.Linear(1024, 1024),
@@ -143,17 +134,11 @@ class Model(nn.Module):
         )
     
     def reset_params(self):
-        #self.xi = nn.Parameter(self.init_xi)
-        #self.xi.data = self.init_xi.clone()
+        #reset basis weights to random values
         self.xi.data = torch.randn_like(self.init_xi)
 
     def update_mask(self, mask):
         self.mask = self.mask*mask
-        #self.mask = mask
-
-    #def set_basis(self, u):
-    #    self.basis_tensor,_ = basis.create_library(u, polynomial_order=5, use_trig=False)
-    #    self.n_basis = self.basis_tensor.shape[1]
 
     def forward(self, index, net_iv):
         # apply mask
@@ -162,15 +147,9 @@ class Model(nn.Module):
 
 
         var = self.net(net_iv.reshape(self.bs,-1))
-
-        #var = self.net(net_iv[:,:,:].reshape(-1, self.n_step_per_batch*self.n_ind_dim))
-        #steps = var[:, :self.n_ind_dim*(self.n_step_per_batch-1)]
-        #steps = torch.sigmoid(steps)
-
-        #var = var[:, self.n_ind_dim*(self.n_step_per_batch-1):]
-
         var = var.reshape(self.bs, self.n_step_per_batch, self.n_ind_dim)
 
+        #create basis
         var_basis,_ = B.create_library_tensor_batched(var, polynomial_order=2, use_trig=False, constant=True)
 
         rhs = var_basis@xi
@@ -257,11 +236,8 @@ def train():
         if step > 0:
             model.update_mask(mask)
             model.reset_params()
-        if step == 0:
-            nepoch = 400
-        else:
-            nepoch = 400
-        optimize(nepoch)
+
+        optimize()
 
 
 def optimize(nepoch=400):
@@ -275,14 +251,7 @@ def optimize(nepoch=400):
                 x0, steps, eps, var = model(index, batch_in)
 
                 x_loss = (x0- batch_in).pow(2).mean()
-                #loss = (x0- batch).pow(2).sum(dim=[1,2]).mean()
-                #loss = (x0- var).pow(2).mean()
-                #loss = loss +  (var- batch).pow(2).sum(dim=[1,2]).mean()
                 loss = x_loss +  (var- batch_in).pow(2).mean()
-
-                #x_loss = (x0- batch_out).pow(2).sum(dim=[-2,-1]).mean()
-                #v_loss = (var- batch_out).pow(2).sum(dim=[-2,-1]).mean()
-                #loss = x_loss + v_loss 
 
                 loss.backward()
                 optimizer.step()
@@ -292,15 +261,8 @@ def optimize(nepoch=400):
             L.info(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
             pbar.set_description(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
 
-            #L.info(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
-            #pbar.set_description(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
-
 
 if __name__ == "__main__":
     train()
-    #train_l1()
-    print(model.xi)
-    print(model.xi*model.mask)
-    #print('coeffs', model.init_coeffs)
 
     print_eq()
