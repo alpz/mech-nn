@@ -122,7 +122,7 @@ class Model(nn.Module):
         self.init_coeffs = nn.Parameter(init_coeffs)
         
         self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, 
-                                    n_iv=self.n_iv, n_iv_steps=1, cent_diff=True, gamma=0.3, alpha=1, **kwargs)
+                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.3, alpha=1, **kwargs)
 
 
         self.net = nn.Sequential(

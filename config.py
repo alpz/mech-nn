@@ -9,10 +9,10 @@ class SolverType(Enum):
 
 
 class ODEConfig:
-    #linear_solver = SolverType.DENSE_CHOLESKY
+    linear_solver = SolverType.DENSE_CHOLESKY
 
     #uncomment to choose linear solver sparse conjuate gradient
-    linear_solver = SolverType.SPARSE_INDIRECT_BLOCK_CG
-    cg_max_iter = 200
+    #linear_solver = SolverType.SPARSE_INDIRECT_BLOCK_CG
+    #cg_max_iter = 200
 
 
