@@ -22,7 +22,7 @@ The discovered ODE is fairly good after the first optimization step.
 ## PDE
 For the 1D KdV model, get the 50 second data using the scripts at https://github.com/brandstetter-johannes/LPSDA
 Modify the data location in pde/kdv.py if needed.
-Edit config.py and uncomment the lines for the conjugate gradient solver.
+Edit config.py and set the Cholesky solver.
 
 Run using
 ```

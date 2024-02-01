@@ -121,10 +121,8 @@ class Method(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x = batch[0]
         y = batch[1]
-        u,u_x,eps, eps_x = self(x,y)
+        u,eps = self(x,y)
         
-        u_x = u_x.reshape(y.shape)
-        b = x.shape[0]
 
         loss = self.loss(u,y) 
 
@@ -137,10 +135,8 @@ class Method(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x = batch[0]
         y = batch[1]
-        u,u_x,eps,eps_x = self(x,y)
+        u,eps = self(x,y)
         
-        u_x = u_x.reshape(y.shape)
-        b = x.shape[0]
 
         loss = self.loss(u,y) 
 
@@ -422,7 +418,8 @@ def resume(ckpt):
     trainer.fit(method, datamodule=datamodule)
 
 if __name__ == "__main__":
-    if len(sys.argv ==1):
+    if len(sys.argv) ==1:
+        print('training')
         train()
     else:
         losses(sys.argv[1])

@@ -12,7 +12,7 @@ import torch.linalg as TLA
 
 
 import solver.cg as cg
-from config import config
+from config import ODEConfig as config
 
 
 def block_mv(A, x):
