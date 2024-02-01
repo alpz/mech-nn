@@ -40,7 +40,7 @@ def solve_kkt2(A, L, g, h, gamma):
 
 
 
-def QPFunction(ode, n_step=100, order=2, n_iv=2, gamma=1, alpha=1, DEVICE='cuda', double_ret=False):
+def QPFunction(ode, n_step=100, order=2, n_iv=2, gamma=1, alpha=1, DEVICE='cuda', double_ret=True):
 
     class QPFunctionFn(Function):
         @staticmethod
@@ -83,13 +83,11 @@ def QPFunction(ode, n_step=100, order=2, n_iv=2, gamma=1, alpha=1, DEVICE='cuda'
             if not double_ret:
                 y = y.float()
             return y
-        
+
         @staticmethod
         def backward(ctx, dl_dzhat):
+            #A,AAt, _x, _y = ctx.saved_tensors
             A,L, _x, _y = ctx.saved_tensors
-            n = A.shape[1]
-            m = A.shape[2]
-            At = A.transpose(1,2)
             
             bs = dl_dzhat.shape[0]
             m = ode.num_constraints
@@ -100,34 +98,15 @@ def QPFunction(ode, n_step=100, order=2, n_iv=2, gamma=1, alpha=1, DEVICE='cuda'
             
             _dx, _dnu = -_dx,-_dnu
 
-            #take row, col indices
-            dx = _dx[:,0:n_step].reshape(bs, n_step,1)
-            x = _x[:,0:n_step].reshape(bs, n_step,1)
-            
-            nu = _y
-            
-            t_vars = ode.n_system_vars
-            num_coeffs = t_vars*n_step*(order+1)
-
-            #remove eps
-            dnu = _dnu[:, 1:1+num_coeffs]
-            nu = nu[:, 1:1+num_coeffs]
-            
-
-            div_rhs = _dx[:, n_step*ode.n_equations:(n_step+n_iv)*ode.n_equations].squeeze(2)
-            
-            #dA = torch.tensor(dA)#.sum(dim=0)
-            #db = _dx[:, :2*n_step] #torch.tensor(-dnu.squeeze())
-            db = _dx[:, :n_step*ode.n_equations] #torch.tensor(-dnu.squeeze())
-            db = -db.reshape(bs,n_step*ode.n_equations)
-            #div_rhs = torch.tensor(div_rhs)
-            
-            #dA = dA.reshape(bs,n_step,t_vars, order+1)
+            db = _dx[:, :ode.num_added_equation_constraints] #torch.tensor(-dnu.squeeze())
+            db = -db.squeeze(-1) #.reshape(bs,n_step*ode.n_equations)
 
             if ode.n_iv == 0:
                 div_rhs = None
             else:
-                div_rhs = -div_rhs.reshape(bs,n_iv*ode.n_equations)
+                #div_rhs = _dx[:, n_step*ode.n_equations:(n_step+n_iv)*ode.n_equations].squeeze(2)
+                div_rhs = _dx[:, ode.num_added_equation_constraints:ode.num_added_equation_constraints + ode.num_added_initial_constraints].squeeze(2)
+                div_rhs = -div_rhs#.reshape(bs,n_iv*ode.n_equations)
             
 
             # step gradient
@@ -145,5 +124,6 @@ def QPFunction(ode, n_step=100, order=2, n_iv=2, gamma=1, alpha=1, DEVICE='cuda'
                 dD = dD.float()
             
             return dA, db,div_rhs, dD
+        
 
     return QPFunctionFn.apply
