@@ -15,21 +15,21 @@ def create_library_tensor_batched(u: torch.tensor, polynomial_order: int,
     (b, m, n) = u.shape
     if constant:
         theta = torch.ones((b,m, 1)).type_as(u)
-        var_list.append('1')
+        #var_list.append('1')
 
         # Polynomials of order 1.
         theta = torch.cat((theta, u),dim=-1)
     else:
         theta = u
-    for i in range(n):
-        var_list.append(f'x{i}')
+    #for i in range(n):
+    #    var_list.append(f'x{i}')
 
     # Polynomials of order 2.
     if polynomial_order >= 2:
         for i in range(n):
             for j in range(i, n):
                 theta = torch.cat((theta, u[:,:, i:i + 1] * u[:,:, j:j + 1]), dim=-1)
-                var_list.append(f'x{i}*x{j}')
+                #var_list.append(f'x{i}*x{j}')
 
     # Polynomials of order 3.
     if polynomial_order >= 3:
@@ -39,7 +39,7 @@ def create_library_tensor_batched(u: torch.tensor, polynomial_order: int,
                     theta = torch.cat(
                         (theta, u[:,:, i:i + 1] * u[:,:, j:j + 1] * u[:,:, k:k + 1]), dim=-1)
 
-                    var_list.append(f'x{i}*x{j}*x{k}')
+                    #var_list.append(f'x{i}*x{j}*x{k}')
 
     # Polynomials of order 4.
     if polynomial_order >= 4:
@@ -50,7 +50,7 @@ def create_library_tensor_batched(u: torch.tensor, polynomial_order: int,
                         theta = torch.cat(
                             (theta, u[:,:, i:i + 1] * u[:,:, j:j + 1] *
                              u[:,:, k:k + 1] * u[:,:, l:l + 1]), dim=-1)
-                        var_list.append(f'x{i}*x{j}*x{k}*x{l}')
+                        #var_list.append(f'x{i}*x{j}*x{k}*x{l}')
 
     # Polynomials of order 5.
     if polynomial_order >= 5:
@@ -62,7 +62,7 @@ def create_library_tensor_batched(u: torch.tensor, polynomial_order: int,
                             theta = torch.cat(
                                 (theta, u[:,:, i:i + 1] * u[:,:, j:j + 1] *
                                  u[:,:, k:k + 1] * u[:,:, l:l + 1] * u[:,:, m:m + 1]), dim=-1)
-                            var_list.append(f'x{i}*x{j}*x{k}*x{l}*x{m}')
+                            #var_list.append(f'x{i}*x{j}*x{k}*x{l}*x{m}')
 
     if use_trig:
         for i in range(1, 11):
