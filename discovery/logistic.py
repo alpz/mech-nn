@@ -47,6 +47,7 @@ cuda=True
 class LogisticDataset(Dataset):
     def __init__(self, n_step_per_batch=100, n_step=1000, train=True):
         data, shared_r, Ks, y0s = self.generate_logistic(N=5000, noise=1e-3)
+        #data, shared_r, Ks, y0s = self.generate_logistic(N=5000, noise=0)
 
         self.down_sample = 1
 
@@ -104,7 +105,7 @@ class Model(nn.Module):
         super().__init__()
 
         self.n_step = n_step #+ 1
-        self.order = 2
+        self.order = 3
         # state dimension
         self.bs = bs
         self.device = device
@@ -114,7 +115,7 @@ class Model(nn.Module):
 
         self.num_params = 2
 
-        #self.step_size = nn.Parameter(logit(0.1)*torch.ones(1,1,1))
+        #self.step_size = nn.Parameter(logit(0.05)*torch.ones(1,1,1))
         
         self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, solver_dbl=True, double_ret=True,
                                     n_iv=self.n_iv, n_iv_steps=1,  gamma=0.05, alpha=0, **kwargs)
@@ -122,7 +123,7 @@ class Model(nn.Module):
 
         pm = 'zeros'
         self.cf_cnn = nn.Sequential(
-            nn.Conv1d(1,64, kernel_size=5, padding=2, stride=1, padding_mode=pm),
+            nn.Conv1d(1,64, kernel_size=3, padding=1, stride=1, padding_mode=pm),
             nn.ELU(),
             nn.Conv1d(64,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
@@ -138,7 +139,7 @@ class Model(nn.Module):
             )
 
         self.param_cnn = nn.Sequential(
-            nn.Conv1d(1,64, kernel_size=5, padding=2, stride=1, padding_mode=pm),
+            nn.Conv1d(1,64, kernel_size=3, padding=1, stride=1, padding_mode=pm),
             nn.ELU(),
             nn.Conv1d(64,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
@@ -154,7 +155,7 @@ class Model(nn.Module):
             )
 
         self.step_cnn = nn.Sequential(
-            nn.Conv1d(1,64, kernel_size=5, padding=2, stride=1, padding_mode=pm),
+            nn.Conv1d(1,64, kernel_size=3, padding=1, stride=1, padding_mode=pm),
             nn.ELU(),
             nn.Conv1d(64,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
@@ -180,6 +181,7 @@ class Model(nn.Module):
         var = var.reshape(self.bs, self.n_step_per_batch)
 
         params = self.param_cnn(x.reshape(self.bs,-1).unsqueeze(1))
+        #params = self.param_cnn(var.reshape(self.bs,-1).unsqueeze(1))
         params = params.reshape(-1, 2, 1)
 
         rhs = params[:,0]*var + params[:,1]*(var**2)
@@ -187,8 +189,8 @@ class Model(nn.Module):
         z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(x)
         o = torch.ones(1, self.n_ind_dim, 1,1).type_as(x)
 
-        # 0*u + 1*u' + 0*u'' = rhs
-        coeffs = torch.cat([z,o,z], dim=-1)
+        # 0*u + 1*u' + 0*u'' +0u''' = rhs
+        coeffs = torch.cat([z,o,z,z], dim=-1)
         coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
 
         init_iv = var[:,0]
@@ -199,7 +201,7 @@ class Model(nn.Module):
         #steps = self.step_size.repeat(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(x)
         steps = steps.repeat(1, self.n_ind_dim, self.n_step_per_batch-1).type_as(x)
 
-        steps = torch.sigmoid(steps)
+        steps = torch.sigmoid(steps).clip(min=0.0005)
         #self.steps = self.steps.type_as(net_iv)
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
