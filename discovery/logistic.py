@@ -117,7 +117,7 @@ class Model(nn.Module):
         #self.step_size = nn.Parameter(logit(0.1)*torch.ones(1,1,1))
         
         self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, solver_dbl=True, double_ret=True,
-                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.01, alpha=0, **kwargs)
+                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.05, alpha=0, **kwargs)
 
 
         pm = 'zeros'
@@ -211,7 +211,7 @@ class Model(nn.Module):
         return x0, steps, eps.abs().max(), var,params
 
 model = Model(bs=batch_size,n_step=T, n_step_per_batch=n_step_per_batch, device=device)
-optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 
 if DBL:
     model = model.double()
