@@ -118,7 +118,7 @@ class Model(nn.Module):
         #self.step_size = nn.Parameter(logit(0.05)*torch.ones(1,1,1))
         
         self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, solver_dbl=True, double_ret=True,
-                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.05, alpha=0, **kwargs)
+                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.5, alpha=0, **kwargs)
 
 
         pm = 'zeros'
