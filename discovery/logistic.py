@@ -223,7 +223,7 @@ model=model.to(device)
 
 def loss_func(x, y):
     #MAE loss
-    loss = (x- y).abs().mean()
+    loss = (x- y).abs().sum(dim=-1).mean()
     #loss = (x- y).pow(2).mean()
     return loss
 
