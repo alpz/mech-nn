@@ -26,7 +26,6 @@ import torch.nn.functional as F
 from tqdm import tqdm
 import discovery.plot as P
 
-# Lorenz discovery with a single flat parameter vector.
 
 log_dir, run_id = create_log_dir(root='logs')
 write_source_files(log_dir)
@@ -34,11 +33,11 @@ L = logger.setup(log_dir, stdout=False)
 
 DBL=True
 dtype = torch.float64 if DBL else torch.float32
-STEP = 0.001
+STEP = 0.01
 cuda=True
-T = 40000
+T = 10000
 n_step_per_batch = 50
-batch_size= 20
+batch_size= 512
 #weights less than threshold (absolute) are set to 0 after each optimization step.
 threshold = 0.1
 
@@ -116,15 +115,24 @@ class Model(nn.Module):
         self.mask = torch.ones_like(self.init_xi).to(device)
 
         #Step size is fixed. Make this a parameter for learned step
-        self.step_size = 0.001
+        self.step_size = (logit(0.01)*torch.ones(1,1,1))
         self.xi = nn.Parameter(self.init_xi.clone())
+        self.param_in = nn.Parameter(torch.randn(1,64))
 
         init_coeffs = torch.rand(1, self.n_ind_dim, 1, 2, dtype=dtype)
         self.init_coeffs = nn.Parameter(init_coeffs)
         
-        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, 
-                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.3, alpha=1, **kwargs)
+        self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, solver_dbl=True, double_ret=True,
+                                    n_iv=self.n_iv, n_iv_steps=1,  gamma=0.05, alpha=0, **kwargs)
 
+
+        self.param_net = nn.Sequential(
+            nn.Linear(64, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, 1024),
+            nn.ReLU(),
+            nn.Linear(1024, self.n_basis*self.n_ind_dim)
+        )
 
         self.net = nn.Sequential(
             nn.Linear(self.n_step_per_batch*self.n_ind_dim, 1024),
@@ -140,10 +148,20 @@ class Model(nn.Module):
 
     def update_mask(self, mask):
         self.mask = self.mask*mask
+    
+    def get_xi(self):
+        xi = self.param_net(self.param_in)
+        xi = xi.reshape(self.init_xi.shape)
+        return xi
 
     def forward(self, index, net_iv):
         # apply mask
-        xi = self.mask*self.xi
+        xi = self.get_xi()
+        #xi = _xi
+
+        #xi = self.mask*self.xi
+        xi = self.mask*xi
+        _xi = xi
         xi = xi.repeat(self.bs, 1,1)
 
 
@@ -164,13 +182,16 @@ class Model(nn.Module):
 
         init_iv = var[:,0]
 
-        steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+        #steps = self.step_size*torch.ones(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+        steps = self.step_size.repeat(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(net_iv)
+
+        steps = torch.sigmoid(steps)
         #self.steps = self.steps.type_as(net_iv)
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
         x0 = x0.permute(0,2,1)
 
-        return x0, steps, eps, var
+        return x0, steps, eps, var,_xi
 
 model = Model(bs=batch_size,n_step=T, n_step_per_batch=n_step_per_batch, n_basis=ds.n_basis, device=device)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
@@ -182,7 +203,9 @@ model=model.to(device)
 
 def print_eq(stdout=False):
     #print learned equation
-    repr_dict = B.basis_repr(model.xi*model.mask, ds.basis_vars)
+    xi = model.get_xi()
+    #repr_dict = B.basis_repr(model.xi*model.mask, ds.basis_vars)
+    repr_dict = B.basis_repr(xi*model.mask, ds.basis_vars)
     code = []
     for k,v in repr_dict.items():
         L.info(f'{k} = {v}')
@@ -218,13 +241,12 @@ def train():
 
         #threshold
         if step > 0:
-            params = model.xi
-            mask = (params.abs() > threshold).float()
+            xi = model.get_xi()
+            mask = (xi.abs() > threshold).float()
 
-            L.info(model.xi)
-            L.info(model.xi*model.mask)
+            L.info(xi)
+            L.info(xi*model.mask)
             L.info(model.mask)
-            #L.info(model.init_coeffs)
             L.info(model.mask*mask)
 
         code = print_eq(stdout=True)
@@ -249,17 +271,20 @@ def optimize(nepoch=400):
                 batch_in = batch_in.to(device)
 
                 optimizer.zero_grad()
-                x0, steps, eps, var = model(index, batch_in)
+                x0, steps, eps, var,xi = model(index, batch_in)
 
                 x_loss = (x0- batch_in).pow(2).mean()
                 loss = x_loss +  (var- batch_in).pow(2).mean()
+                
 
                 loss.backward()
                 optimizer.step()
 
 
+            xi = xi.detach().cpu().numpy()
             meps = eps.max().item()
             L.info(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
+            print(f'basis\n {xi}')
             pbar.set_description(f'run {run_id} epoch {epoch}, loss {loss.item()} max eps {meps} xloss {x_loss} ')
 
 

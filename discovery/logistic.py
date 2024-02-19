@@ -294,7 +294,7 @@ def check(label):
     P.plot_logistic(learned_params, act_rs, act_rks, os.path.join(log_dir, f'params_{label}_all.pdf'))
     P.plot_logistic(learned_params[:100], act_rs[:100], act_rks[:100], os.path.join(log_dir, f'params_{label}_100.pdf'))
 
-def train(nepoch=80):
+def train(nepoch=150):
     with tqdm(total=nepoch) as pbar:
         eval_loss = 9999
         for epoch in range(nepoch):
