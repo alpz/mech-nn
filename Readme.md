@@ -1,4 +1,6 @@
 
+*Mechanistic Neural Networks for Scientific Machine Learning*, Adeel Pervez, Francesco Locattello, Efstratios Gavves.
+
 To run the code create a conda environment by using the env.yml file.
 Small test examples can be run in the given Jupyter Notebooks.
 These include a simple fitting test of a damped sinusoidal wave, a solver comparison with scipy odeint, and 2-body trajectory predictions.
