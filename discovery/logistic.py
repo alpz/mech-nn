@@ -47,7 +47,6 @@ cuda=True
 class LogisticDataset(Dataset):
     def __init__(self, n_step_per_batch=100, n_step=1000, train=True):
         data, shared_r, Ks, y0s = self.generate_logistic(N=5000, noise=1e-3)
-        #data, shared_r, Ks, y0s = self.generate_logistic(N=5000, noise=0)
 
         self.down_sample = 1
 
@@ -93,7 +92,7 @@ class LogisticDataset(Dataset):
         return x,self.shared_r[idx],self.Ks[idx]
 
 ds = LogisticDataset(n_step=T,n_step_per_batch=n_step_per_batch, train=True)#.generate()
-eval_ds = LogisticDataset(n_step=T,n_step_per_batch=n_step_per_batch, train=True)#.generate()
+eval_ds = LogisticDataset(n_step=T,n_step_per_batch=n_step_per_batch, train=False)#.generate()
 train_loader =DataLoader(ds, batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True) 
 eval_loader =DataLoader(eval_ds, batch_size=batch_size, shuffle=False, num_workers=8, drop_last=True) 
 
@@ -105,7 +104,7 @@ class Model(nn.Module):
         super().__init__()
 
         self.n_step = n_step #+ 1
-        self.order = 3
+        self.order = 2
         # state dimension
         self.bs = bs
         self.device = device
@@ -113,9 +112,9 @@ class Model(nn.Module):
         self.n_ind_dim = 1
         self.n_step_per_batch = n_step_per_batch
 
-        self.num_params = 2
+        self.num_params = 3
 
-        #self.step_size = nn.Parameter(logit(0.05)*torch.ones(1,1,1))
+        #self.step_size = nn.Parameter(logit(0.1)*torch.ones(1,1,1))
         
         self.ode = ODEINDLayer(bs=bs, order=self.order, n_ind_dim=self.n_ind_dim, n_step=self.n_step_per_batch, solver_dbl=True, double_ret=True,
                                     n_iv=self.n_iv, n_iv_steps=1,  gamma=0.5, alpha=0, **kwargs)
@@ -123,7 +122,7 @@ class Model(nn.Module):
 
         pm = 'zeros'
         self.cf_cnn = nn.Sequential(
-            nn.Conv1d(1,64, kernel_size=3, padding=1, stride=1, padding_mode=pm),
+            nn.Conv1d(1,64, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
             nn.Conv1d(64,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
@@ -139,7 +138,7 @@ class Model(nn.Module):
             )
 
         self.param_cnn = nn.Sequential(
-            nn.Conv1d(1,64, kernel_size=3, padding=1, stride=1, padding_mode=pm),
+            nn.Conv1d(1,64, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
             nn.Conv1d(64,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
@@ -151,11 +150,11 @@ class Model(nn.Module):
             nn.ELU(),
             nn.Conv1d(128,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.Flatten(),
-            nn.Linear(60*128,2)
+            nn.Linear(60*128,self.num_params)
             )
 
         self.step_cnn = nn.Sequential(
-            nn.Conv1d(1,64, kernel_size=3, padding=1, stride=1, padding_mode=pm),
+            nn.Conv1d(1,64, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
             nn.Conv1d(64,128, kernel_size=5, padding=2, stride=1, padding_mode=pm),
             nn.ELU(),
@@ -181,16 +180,16 @@ class Model(nn.Module):
         var = var.reshape(self.bs, self.n_step_per_batch)
 
         params = self.param_cnn(x.reshape(self.bs,-1).unsqueeze(1))
-        #params = self.param_cnn(var.reshape(self.bs,-1).unsqueeze(1))
-        params = params.reshape(-1, 2, 1)
+        params = params.reshape(-1, self.num_params, 1)
 
-        rhs = params[:,0]*var + params[:,1]*(var**2)
+        #rhs = params[:,0]*var + params[:,1]*(var**2)
+        rhs = params[:,0]*torch.ones_like(var) + params[:,1]*var + params[:,2]*(var**2)
 
         z = torch.zeros(1, self.n_ind_dim, 1,1).type_as(x)
         o = torch.ones(1, self.n_ind_dim, 1,1).type_as(x)
 
-        # 0*u + 1*u' + 0*u'' +0u''' = rhs
-        coeffs = torch.cat([z,o,z,z], dim=-1)
+        # 0*u + 1*u' + 0*u'' = rhs
+        coeffs = torch.cat([z,o,z], dim=-1)
         coeffs = coeffs.repeat(self.bs,1,self.n_step_per_batch,1)
 
         init_iv = var[:,0]
@@ -201,7 +200,7 @@ class Model(nn.Module):
         #steps = self.step_size.repeat(self.bs, self.n_ind_dim, self.n_step_per_batch-1).type_as(x)
         steps = steps.repeat(1, self.n_ind_dim, self.n_step_per_batch-1).type_as(x)
 
-        steps = torch.sigmoid(steps).clip(min=0.0005)
+        steps = torch.sigmoid(steps).clip(min=0.0001)
         #self.steps = self.steps.type_as(net_iv)
 
         x0,x1,x2,eps,steps = self.ode(coeffs, rhs, init_iv, steps)
@@ -295,7 +294,7 @@ def check(label):
     P.plot_logistic(learned_params, act_rs, act_rks, os.path.join(log_dir, f'params_{label}_all.pdf'))
     P.plot_logistic(learned_params[:100], act_rs[:100], act_rks[:100], os.path.join(log_dir, f'params_{label}_100.pdf'))
 
-def train(nepoch=300):
+def train(nepoch=80):
     with tqdm(total=nepoch) as pbar:
         eval_loss = 9999
         for epoch in range(nepoch):
