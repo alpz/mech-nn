@@ -1,5 +1,5 @@
 
-*Mechanistic Neural Networks for Scientific Machine Learning*, Adeel Pervez, Francesco Locattello, Efstratios Gavves.
+*Mechanistic Neural Networks for Scientific Machine Learning*, Adeel Pervez, Francesco Locatello, Efstratios Gavves.
 
 To run the code create a conda environment by using the env.yml file.
 Small test examples can be run in the given Jupyter Notebooks.
